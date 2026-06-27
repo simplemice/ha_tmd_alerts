@@ -101,16 +101,15 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           ZIPNAME="tmd_alerts_v${VERSION}.zip"
 
-          cd ..
-          zip -r "tmd_alerts/${ZIPNAME}" tmd_alerts/ \
-            --exclude "tmd_alerts/.git/*" \
-            --exclude "tmd_alerts/.github/*" \
-            --exclude "tmd_alerts/.claude/*" \
-            --exclude "tmd_alerts/LICENSE*" \
-            --exclude "tmd_alerts/README.md" \
-            --exclude "tmd_alerts/__pycache__/*" \
-            --exclude "tmd_alerts/*.pyc"
-          cd tmd_alerts
+          # Stage files under tmd_alerts/ so the zip extracts into custom_components/tmd_alerts/
+          STAGING=$(mktemp -d)
+          mkdir "${STAGING}/tmd_alerts"
+          cp *.py manifest.json strings.json "${STAGING}/tmd_alerts/"
+          cp -r translations "${STAGING}/tmd_alerts/"
+
+          cd "${STAGING}"
+          zip -r "${GITHUB_WORKSPACE}/${ZIPNAME}" tmd_alerts/
+          cd "${GITHUB_WORKSPACE}"
 
           ls -lh "${ZIPNAME}"
           echo "zip_name=${ZIPNAME}" >> "$GITHUB_ENV"
