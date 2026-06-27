@@ -1,4 +1,4 @@
-# Thailand Weather Alerts (TMD)
+# Thailand Weather Alerts (TMD) Integration for Home Assistant
 
 A custom Home Assistant integration that fetches real-time weather warnings from the **[Thailand Meteorological Department (TMD)](https://tmd.go.th)** Weather Warning API and exposes them as entities inside Home Assistant.
 

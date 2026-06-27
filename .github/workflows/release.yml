@@ -1,0 +1,135 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.manifest.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read manifest version
+        id: manifest
+        run: |
+          VERSION=$(python3 -c "import json; print(json.load(open('manifest.json'))['version'])")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Manifest version: $VERSION"
+
+      - name: Check tag matches manifest version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          MANIFEST="${{ steps.manifest.outputs.version }}"
+          if [ "$TAG" != "$MANIFEST" ]; then
+            echo "::error::Tag version ($TAG) does not match manifest.json version ($MANIFEST)"
+            exit 1
+          fi
+
+      - name: Validate JSON files
+        run: |
+          python3 -c "
+          import json, sys, pathlib
+          failed = False
+          for f in pathlib.Path('.').rglob('*.json'):
+            try:
+              json.loads(f.read_text())
+            except json.JSONDecodeError as e:
+              print(f'FAIL {f}: {e}')
+              failed = True
+          if failed:
+            sys.exit(1)
+          print('All JSON files valid')
+          "
+
+      - name: Check Python syntax
+        run: |
+          python3 -c "
+          import ast, sys, pathlib
+          failed = False
+          for f in pathlib.Path('.').rglob('*.py'):
+            try:
+              ast.parse(f.read_text())
+            except SyntaxError as e:
+              print(f'FAIL {f}: {e}')
+              failed = True
+          if failed:
+            sys.exit(1)
+          print('All Python files valid')
+          "
+
+      - name: Check required files exist
+        run: |
+          REQUIRED=(
+            "__init__.py"
+            "manifest.json"
+            "config_flow.py"
+            "strings.json"
+            "translations/en.json"
+          )
+          MISSING=()
+          for f in "${REQUIRED[@]}"; do
+            [ -f "$f" ] || MISSING+=("$f")
+          done
+          if [ ${#MISSING[@]} -gt 0 ]; then
+            echo "::error::Missing required files: ${MISSING[*]}"
+            exit 1
+          fi
+          echo "All required files present"
+
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: validate
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build release zip
+        run: |
+          VERSION="${{ needs.validate.outputs.version }}"
+          ZIPNAME="tmd_alerts_v${VERSION}.zip"
+
+          # Zip the integration directory so it extracts as tmd_alerts/
+          cd ..
+          zip -r "tmd_alerts/${ZIPNAME}" tmd_alerts/ \
+            --exclude "tmd_alerts/.git/*" \
+            --exclude "tmd_alerts/.github/*" \
+            --exclude "tmd_alerts/.claude/*" \
+            --exclude "tmd_alerts/LICENSE*" \
+            --exclude "tmd_alerts/README.md" \
+            --exclude "tmd_alerts/__pycache__/*" \
+            --exclude "tmd_alerts/*.pyc"
+          cd tmd_alerts
+          echo "zip_name=${ZIPNAME}" >> "$GITHUB_ENV"
+          echo "Built: ${ZIPNAME} ($(du -sh ${ZIPNAME} | cut -f1))"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "v${{ needs.validate.outputs.version }}"
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          make_latest: true
+          files: ${{ env.zip_name }}
+          body: |
+            ## Installation
+
+            ### HACS
+            Add this repository as a custom repository in HACS, then install **Thailand Weather Alerts (TMD)**.
+
+            ### Manual
+            Download `${{ env.zip_name }}`, extract it, and copy the `tmd_alerts/` folder into `config/custom_components/`.
+            Then restart Home Assistant.
+
+            ---

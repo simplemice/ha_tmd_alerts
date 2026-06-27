@@ -1,0 +1,114 @@
+name: Validate
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  validate:
+    name: Validate Integration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate JSON files
+        run: |
+          python3 -c "
+          import json, sys, pathlib
+          failed = False
+          for f in pathlib.Path('.').rglob('*.json'):
+            try:
+              json.loads(f.read_text())
+            except json.JSONDecodeError as e:
+              print(f'FAIL {f}: {e}')
+              failed = True
+          if failed:
+            sys.exit(1)
+          print('All JSON files valid')
+          "
+
+      - name: Check Python syntax
+        run: |
+          python3 -c "
+          import ast, sys, pathlib
+          failed = False
+          for f in pathlib.Path('.').rglob('*.py'):
+            try:
+              ast.parse(f.read_text())
+            except SyntaxError as e:
+              print(f'FAIL {f}: {e}')
+              failed = True
+          if failed:
+            sys.exit(1)
+          print('All Python files valid')
+          "
+
+      - name: Validate manifest.json fields
+        run: |
+          python3 -c "
+          import json, sys
+          m = json.load(open('manifest.json'))
+          required = ['domain', 'name', 'version', 'codeowners', 'iot_class', 'config_flow']
+          missing = [k for k in required if k not in m]
+          if missing:
+            print(f'manifest.json missing keys: {missing}')
+            sys.exit(1)
+          if not m.get('config_flow'):
+            print('config_flow must be true')
+            sys.exit(1)
+          print(f'manifest.json OK — version {m[\"version\"]}')
+          "
+
+      - name: Check required files exist
+        run: |
+          REQUIRED=(
+            "__init__.py"
+            "manifest.json"
+            "config_flow.py"
+            "const.py"
+            "coordinator.py"
+            "sensor.py"
+            "binary_sensor.py"
+            "strings.json"
+            "translations/en.json"
+          )
+          MISSING=()
+          for f in "${REQUIRED[@]}"; do
+            [ -f "$f" ] || MISSING+=("$f")
+          done
+          if [ ${#MISSING[@]} -gt 0 ]; then
+            echo "::error::Missing required files: ${MISSING[*]}"
+            exit 1
+          fi
+          echo "All required files present"
+
+      - name: Check translations match strings
+        run: |
+          python3 -c "
+          import json, sys
+
+          def flatten(d, prefix=''):
+            keys = set()
+            for k, v in d.items():
+              path = f'{prefix}.{k}' if prefix else k
+              if isinstance(v, dict):
+                keys |= flatten(v, path)
+              else:
+                keys.add(path)
+            return keys
+
+          strings = flatten(json.load(open('strings.json')))
+          en = flatten(json.load(open('translations/en.json')))
+          missing = strings - en
+          extra = en - strings
+          if missing:
+            print(f'translations/en.json missing keys: {missing}')
+            sys.exit(1)
+          if extra:
+            print(f'translations/en.json has extra keys not in strings.json: {extra}')
+            sys.exit(1)
+          print('translations/en.json in sync with strings.json')
+          "

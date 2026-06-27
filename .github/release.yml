@@ -1,0 +1,33 @@
+# Controls how GitHub auto-generates release notes from PR titles and labels.
+# Used by the release workflow and the "Generate release notes" button in the UI.
+
+changelog:
+  exclude:
+    labels:
+      - skip-changelog
+    authors:
+      - dependabot
+  categories:
+    - title: Breaking Changes
+      labels:
+        - breaking
+    - title: New Features
+      labels:
+        - enhancement
+        - feature
+    - title: Bug Fixes
+      labels:
+        - bug
+        - fix
+    - title: Documentation
+      labels:
+        - documentation
+        - docs
+    - title: Maintenance
+      labels:
+        - chore
+        - maintenance
+        - dependencies
+    - title: Other Changes
+      labels:
+        - "*"
