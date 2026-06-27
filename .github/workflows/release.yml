@@ -2,39 +2,47 @@ name: Release
 
 on:
   push:
-    tags:
-      - "v*.*.*"
+    branches:
+      - main
 
 permissions:
   contents: write
 
 jobs:
-  validate:
-    name: Validate
+  release:
+    name: Auto Release
     runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.manifest.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Read manifest version
-        id: manifest
+      # ── Read version from manifest.json ───────────────────────────────────
+      - name: Read version from manifest.json
+        id: version
         run: |
           VERSION=$(python3 -c "import json; print(json.load(open('manifest.json'))['version'])")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
           echo "Manifest version: $VERSION"
 
-      - name: Check tag matches manifest version
+      # ── Skip if this version tag was already released ─────────────────────
+      - name: Check if tag already exists
+        id: tag_check
         run: |
-          TAG="${GITHUB_REF_NAME#v}"
-          MANIFEST="${{ steps.manifest.outputs.version }}"
-          if [ "$TAG" != "$MANIFEST" ]; then
-            echo "::error::Tag version ($TAG) does not match manifest.json version ($MANIFEST)"
-            exit 1
+          TAG="v${{ steps.version.outputs.version }}"
+          if git ls-remote --tags origin "refs/tags/$TAG" | grep -q "$TAG"; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Tag $TAG already exists — nothing to release"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Tag $TAG is new — proceeding with release"
           fi
 
+      # ── Validate (only when releasing) ────────────────────────────────────
       - name: Validate JSON files
+        if: steps.tag_check.outputs.exists == 'false'
         run: |
           python3 -c "
           import json, sys, pathlib
@@ -51,6 +59,7 @@ jobs:
           "
 
       - name: Check Python syntax
+        if: steps.tag_check.outputs.exists == 'false'
         run: |
           python3 -c "
           import ast, sys, pathlib
@@ -67,11 +76,16 @@ jobs:
           "
 
       - name: Check required files exist
+        if: steps.tag_check.outputs.exists == 'false'
         run: |
           REQUIRED=(
             "__init__.py"
             "manifest.json"
             "config_flow.py"
+            "const.py"
+            "coordinator.py"
+            "sensor.py"
+            "binary_sensor.py"
             "strings.json"
             "translations/en.json"
           )
@@ -85,22 +99,13 @@ jobs:
           fi
           echo "All required files present"
 
-  release:
-    name: Create Release
-    runs-on: ubuntu-latest
-    needs: validate
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
+      # ── Build release zip ─────────────────────────────────────────────────
       - name: Build release zip
+        if: steps.tag_check.outputs.exists == 'false'
         run: |
-          VERSION="${{ needs.validate.outputs.version }}"
+          VERSION="${{ steps.version.outputs.version }}"
           ZIPNAME="tmd_alerts_v${VERSION}.zip"
 
-          # Zip the integration directory so it extracts as tmd_alerts/
           cd ..
           zip -r "tmd_alerts/${ZIPNAME}" tmd_alerts/ \
             --exclude "tmd_alerts/.git/*" \
@@ -111,14 +116,27 @@ jobs:
             --exclude "tmd_alerts/__pycache__/*" \
             --exclude "tmd_alerts/*.pyc"
           cd tmd_alerts
-          echo "zip_name=${ZIPNAME}" >> "$GITHUB_ENV"
-          echo "Built: ${ZIPNAME} ($(du -sh ${ZIPNAME} | cut -f1))"
 
+          echo "zip_name=${ZIPNAME}" >> "$GITHUB_ENV"
+          echo "Built ${ZIPNAME} — $(du -sh ${ZIPNAME} | cut -f1)"
+
+      # ── Tag the commit ────────────────────────────────────────────────────
+      - name: Create and push tag
+        if: steps.tag_check.outputs.exists == 'false'
+        run: |
+          TAG="v${{ steps.version.outputs.version }}"
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "$TAG"
+          git push origin "$TAG"
+
+      # ── Publish release ───────────────────────────────────────────────────
       - name: Create GitHub Release
+        if: steps.tag_check.outputs.exists == 'false'
         uses: softprops/action-gh-release@v2
         with:
-          name: "v${{ needs.validate.outputs.version }}"
-          tag_name: ${{ github.ref_name }}
+          tag_name: "v${{ steps.version.outputs.version }}"
+          name: "v${{ steps.version.outputs.version }}"
           generate_release_notes: true
           make_latest: true
           files: ${{ env.zip_name }}
@@ -130,6 +148,6 @@ jobs:
 
             ### Manual
             Download `${{ env.zip_name }}`, extract it, and copy the `tmd_alerts/` folder into `config/custom_components/`.
-            Then restart Home Assistant.
+            Restart Home Assistant.
 
             ---
