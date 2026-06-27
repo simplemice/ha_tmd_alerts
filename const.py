@@ -2,14 +2,10 @@ DOMAIN = "tmd_alerts"
 
 DEFAULT_SCAN_INTERVAL = 600
 
-RSS_URL = "https://www.tmd.go.th/en/service/rss/warning.xml"
+API_URL = "http://data.tmd.go.th/api/WeatherWarningNews/v2/"
 
-REGIONS = [
-    "All",
-    "Northern",
-    "Northeastern",
-    "Central",
-    "Eastern",
-    "Southern East Coast",
-    "Southern West Coast"
-]
+DEFAULT_UID = "demo"
+DEFAULT_UKEY = "demokey"
+
+CONF_UID = "uid"
+CONF_UKEY = "ukey"

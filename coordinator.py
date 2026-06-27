@@ -1,27 +1,29 @@
 from datetime import timedelta
 import logging
+
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
-from .const import DOMAIN, DEFAULT_SCAN_INTERVAL, RSS_URL
-from .api import fetch_alerts
+
+from .api import fetch_warnings
+from .const import API_URL, CONF_UID, CONF_UKEY, DEFAULT_SCAN_INTERVAL, DEFAULT_UID, DEFAULT_UKEY, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
+
 class TMDCoordinator(DataUpdateCoordinator):
-    def __init__(self, hass, entry):
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(
             hass,
             _LOGGER,
             name=DOMAIN,
             update_interval=timedelta(seconds=DEFAULT_SCAN_INTERVAL),
         )
-        self.region = entry.data.get("region", "All")
+        self.uid = entry.data.get(CONF_UID, DEFAULT_UID)
+        self.ukey = entry.data.get(CONF_UKEY, DEFAULT_UKEY)
 
-    async def _async_update_data(self):
+    async def _async_update_data(self) -> list[dict]:
         try:
-            alerts = await fetch_alerts(self.hass, RSS_URL)
-            if self.region == "All":
-                return alerts
-            # Filter based on region selected in Config Flow
-            return [a for a in alerts if self.region.lower() in a["title"].lower()]
+            return await fetch_warnings(self.hass, API_URL, self.uid, self.ukey)
         except Exception as err:
-            raise UpdateFailed(f"Error communicating with TMD API: {err}")
+            raise UpdateFailed(f"Error fetching TMD warnings: {err}") from err
