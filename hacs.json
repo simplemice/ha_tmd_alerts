@@ -1,0 +1,5 @@
+{
+  "name": "Thailand Weather Alerts (TMD)",
+  "render_readme": true,
+  "homeassistant": "2023.1.0"
+}
