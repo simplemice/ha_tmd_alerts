@@ -123,6 +123,10 @@ All entities belong to the **Thailand Weather Alerts (TMD)** device.
 
 ---
 
+## Screenshots
+
+![TMD Alert Screenshot](screenshots/tmd_0.png)
+
 ## Data Source
 
 | Item | Value |
