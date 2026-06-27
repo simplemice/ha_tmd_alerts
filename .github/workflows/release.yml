@@ -23,60 +23,57 @@ jobs:
         id: version
         run: |
           VERSION=$(python3 -c "import json; print(json.load(open('manifest.json'))['version'])")
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Manifest version: $VERSION"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Manifest version: ${VERSION}"
 
-      # ── Skip if this version tag was already released ─────────────────────
-      - name: Check if tag already exists
-        id: tag_check
+      # ── Skip if this version tag already has a release ────────────────────
+      - name: Check if release already exists
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="v${{ steps.version.outputs.version }}"
-          if git ls-remote --tags origin "refs/tags/$TAG" | grep -q "$TAG"; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "Tag $TAG already exists — nothing to release"
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" > /dev/null 2>&1; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Tag ${TAG} already exists — skipping release"
           else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-            echo "Tag $TAG is new — proceeding with release"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "Tag ${TAG} not found — will create release"
           fi
 
-      # ── Validate (only when releasing) ────────────────────────────────────
+      # ── Validate ──────────────────────────────────────────────────────────
       - name: Validate JSON files
-        if: steps.tag_check.outputs.exists == 'false'
+        if: steps.check.outputs.skip == 'false'
         run: |
-          python3 -c "
+          python3 - <<'EOF'
           import json, sys, pathlib
           failed = False
           for f in pathlib.Path('.').rglob('*.json'):
-            try:
-              json.loads(f.read_text())
-            except json.JSONDecodeError as e:
-              print(f'FAIL {f}: {e}')
-              failed = True
-          if failed:
-            sys.exit(1)
-          print('All JSON files valid')
-          "
+              try:
+                  json.loads(f.read_text())
+              except json.JSONDecodeError as e:
+                  print(f'FAIL {f}: {e}')
+                  failed = True
+          sys.exit(1 if failed else 0)
+          EOF
 
       - name: Check Python syntax
-        if: steps.tag_check.outputs.exists == 'false'
+        if: steps.check.outputs.skip == 'false'
         run: |
-          python3 -c "
+          python3 - <<'EOF'
           import ast, sys, pathlib
           failed = False
           for f in pathlib.Path('.').rglob('*.py'):
-            try:
-              ast.parse(f.read_text())
-            except SyntaxError as e:
-              print(f'FAIL {f}: {e}')
-              failed = True
-          if failed:
-            sys.exit(1)
-          print('All Python files valid')
-          "
+              try:
+                  ast.parse(f.read_text())
+              except SyntaxError as e:
+                  print(f'FAIL {f}: {e}')
+                  failed = True
+          sys.exit(1 if failed else 0)
+          EOF
 
-      - name: Check required files exist
-        if: steps.tag_check.outputs.exists == 'false'
+      - name: Check required files
+        if: steps.check.outputs.skip == 'false'
         run: |
           REQUIRED=(
             "__init__.py"
@@ -89,19 +86,17 @@ jobs:
             "strings.json"
             "translations/en.json"
           )
-          MISSING=()
           for f in "${REQUIRED[@]}"; do
-            [ -f "$f" ] || MISSING+=("$f")
+            if [ ! -f "$f" ]; then
+              echo "::error::Missing required file: $f"
+              exit 1
+            fi
           done
-          if [ ${#MISSING[@]} -gt 0 ]; then
-            echo "::error::Missing required files: ${MISSING[*]}"
-            exit 1
-          fi
           echo "All required files present"
 
       # ── Build release zip ─────────────────────────────────────────────────
       - name: Build release zip
-        if: steps.tag_check.outputs.exists == 'false'
+        if: steps.check.outputs.skip == 'false'
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           ZIPNAME="tmd_alerts_v${VERSION}.zip"
@@ -117,24 +112,15 @@ jobs:
             --exclude "tmd_alerts/*.pyc"
           cd tmd_alerts
 
+          ls -lh "${ZIPNAME}"
           echo "zip_name=${ZIPNAME}" >> "$GITHUB_ENV"
-          echo "Built ${ZIPNAME} — $(du -sh ${ZIPNAME} | cut -f1)"
 
-      # ── Tag the commit ────────────────────────────────────────────────────
-      - name: Create and push tag
-        if: steps.tag_check.outputs.exists == 'false'
-        run: |
-          TAG="v${{ steps.version.outputs.version }}"
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag "$TAG"
-          git push origin "$TAG"
-
-      # ── Publish release ───────────────────────────────────────────────────
+      # ── Create release (action creates tag + release atomically) ──────────
       - name: Create GitHub Release
-        if: steps.tag_check.outputs.exists == 'false'
+        if: steps.check.outputs.skip == 'false'
         uses: softprops/action-gh-release@v2
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           tag_name: "v${{ steps.version.outputs.version }}"
           name: "v${{ steps.version.outputs.version }}"
           generate_release_notes: true

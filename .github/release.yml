@@ -1,6 +1,3 @@
-# Controls how GitHub auto-generates release notes from PR titles and labels.
-# Used by the release workflow and the "Generate release notes" button in the UI.
-
 changelog:
   exclude:
     labels:
