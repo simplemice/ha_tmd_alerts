@@ -21,8 +21,21 @@ jobs:
         with:
           fetch-depth: 0
 
+      # ── Skip bot changelog commits (contain [skip ci]) ────────────────────
+      - name: Check for bot commit
+        id: bot_check
+        run: |
+          MSG=$(git log -1 --pretty=%B)
+          if echo "$MSG" | grep -qF '[skip ci]'; then
+            echo "is_bot=true" >> "$GITHUB_OUTPUT"
+            echo "Bot changelog commit — skipping release"
+          else
+            echo "is_bot=false" >> "$GITHUB_OUTPUT"
+          fi
+
       # ── Read version from manifest.json ───────────────────────────────────
       - name: Read version from manifest.json
+        if: steps.bot_check.outputs.is_bot == 'false'
         id: version
         run: |
           VERSION=$(python3 -c "import json; print(json.load(open('${{ env.INTEGRATION_DIR }}/manifest.json'))['version'])")
@@ -31,6 +44,7 @@ jobs:
 
       # ── Skip if this version tag already has a release ────────────────────
       - name: Check if release already exists
+        if: steps.bot_check.outputs.is_bot == 'false'
         id: check
         run: |
           TAG="v${{ steps.version.outputs.version }}"
@@ -42,9 +56,123 @@ jobs:
             echo "Tag ${TAG} not found — will create release"
           fi
 
+      # ── Generate CHANGELOG entry and update CHANGELOG.md ─────────────────
+      - name: Generate changelog entry
+        if: steps.bot_check.outputs.is_bot == 'false' && steps.check.outputs.skip == 'false'
+        env:
+          CL_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          DATE=$(date +%Y-%m-%d)
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          CL_DATE="$DATE" CL_PREV_TAG="$PREV_TAG" python3 << 'PYEOF'
+          import subprocess, os, re, pathlib
+
+          version  = os.environ["CL_VERSION"]
+          date     = os.environ["CL_DATE"]
+          prev_tag = os.environ.get("CL_PREV_TAG", "")
+          range_spec = f"{prev_tag}..HEAD" if prev_tag else "HEAD"
+
+          result = subprocess.run(
+              ["git", "log", range_spec, "--pretty=%s", "--no-merges"],
+              capture_output=True, text=True
+          )
+
+          sections = {
+              "Added":         [],
+              "Fixed":         [],
+              "Changed":       [],
+              "Documentation": [],
+              "Maintenance":   [],
+              "Other":         [],
+          }
+          prefix_map = {
+              "feat":     "Added",
+              "fix":      "Fixed",
+              "refactor": "Changed",
+              "perf":     "Changed",
+              "docs":     "Documentation",
+              "chore":    "Maintenance",
+              "style":    "Other",
+              "test":     "Other",
+          }
+
+          for msg in result.stdout.strip().splitlines():
+              msg = msg.strip()
+              if not msg or "[skip ci]" in msg:
+                  continue
+              m = re.match(r'^(\w+)(?:\(.+?\))?!?:\s*(.+)', msg)
+              if m and m.group(1) in prefix_map:
+                  sections[prefix_map[m.group(1)]].append(m.group(2).strip())
+              else:
+                  sections["Other"].append(msg)
+
+          entry_lines = [f"## [{version}] - {date}", ""]
+          for section, items in sections.items():
+              if items:
+                  entry_lines.append(f"### {section}")
+                  for item in items:
+                      entry_lines.append(f"- {item}")
+                  entry_lines.append("")
+          entry = "\n".join(entry_lines).rstrip() + "\n"
+
+          # Save entry for release body
+          pathlib.Path("/tmp/changelog_entry.md").write_text(entry)
+
+          # Build full release body
+          install = (
+              "\n---\n\n"
+              "## Installation\n\n"
+              "### HACS (recommended)\n"
+              "Add `simplemice/ha_tmd_alerts` as a custom repository in HACS "
+              "(category: Integration), then install **Thailand Weather Alerts (TMD)**.\n\n"
+              "### Manual\n"
+              f"Download `tmd_alerts_v{version}.zip` below, extract it, and copy the "
+              "`tmd_alerts/` folder to `config/custom_components/`.  \n"
+              "Restart Home Assistant.\n"
+          )
+          pathlib.Path("/tmp/release_body.md").write_text(entry + install)
+
+          # Prepend entry to CHANGELOG.md
+          cl = pathlib.Path("CHANGELOG.md")
+          existing = cl.read_text() if cl.exists() else ""
+          marker = "## ["
+          if marker in existing:
+              new_content = existing.replace(marker, entry + "\n---\n\n" + marker, 1)
+          elif "---" in existing:
+              # Insert after the last --- separator in the header
+              idx = existing.rfind("---")
+              new_content = existing[:idx + 3] + "\n\n" + entry + existing[idx + 3:]
+          else:
+              header = (
+                  "# Changelog\n\n"
+                  "All notable changes to this project will be documented in this file.\n\n"
+                  "Format based on [Keep a Changelog](https://keepachangelog.com).\n\n"
+                  "---\n\n"
+              )
+              new_content = header + entry
+          cl.write_text(new_content)
+
+          print("--- Release body ---")
+          print(entry)
+          PYEOF
+
+      # ── Commit CHANGELOG.md back (with [skip ci] to avoid release loop) ───
+      - name: Commit CHANGELOG.md
+        if: steps.bot_check.outputs.is_bot == 'false' && steps.check.outputs.skip == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          if git diff --cached --quiet; then
+            echo "No changelog changes to commit"
+          else
+            git commit -m "chore: update CHANGELOG for v${{ steps.version.outputs.version }} [skip ci]"
+            git push
+          fi
+
       # ── Validate ──────────────────────────────────────────────────────────
       - name: Validate JSON files
-        if: steps.check.outputs.skip == 'false'
+        if: steps.bot_check.outputs.is_bot == 'false' && steps.check.outputs.skip == 'false'
         run: |
           python3 - <<'EOF'
           import json, sys, pathlib
@@ -59,7 +187,7 @@ jobs:
           EOF
 
       - name: Check Python syntax
-        if: steps.check.outputs.skip == 'false'
+        if: steps.bot_check.outputs.is_bot == 'false' && steps.check.outputs.skip == 'false'
         run: |
           python3 - <<'EOF'
           import ast, sys, pathlib
@@ -74,7 +202,7 @@ jobs:
           EOF
 
       - name: Check required files
-        if: steps.check.outputs.skip == 'false'
+        if: steps.bot_check.outputs.is_bot == 'false' && steps.check.outputs.skip == 'false'
         run: |
           BASE="custom_components/tmd_alerts"
           REQUIRED=(
@@ -99,38 +227,24 @@ jobs:
 
       # ── Build release zip ─────────────────────────────────────────────────
       - name: Build release zip
-        if: steps.check.outputs.skip == 'false'
+        if: steps.bot_check.outputs.is_bot == 'false' && steps.check.outputs.skip == 'false'
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           ZIPNAME="tmd_alerts_v${VERSION}.zip"
-
-          # Zip directly from custom_components/ so archive contains tmd_alerts/<files>
           cd custom_components
           zip -r "${GITHUB_WORKSPACE}/${ZIPNAME}" tmd_alerts/
           cd "${GITHUB_WORKSPACE}"
-
           ls -lh "${ZIPNAME}"
           echo "zip_name=${ZIPNAME}" >> "$GITHUB_ENV"
 
-      # ── Create release (action creates tag + release atomically) ──────────
+      # ── Create GitHub Release ─────────────────────────────────────────────
       - name: Create GitHub Release
-        if: steps.check.outputs.skip == 'false'
+        if: steps.bot_check.outputs.is_bot == 'false' && steps.check.outputs.skip == 'false'
         uses: softprops/action-gh-release@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           tag_name: "v${{ steps.version.outputs.version }}"
           name: "v${{ steps.version.outputs.version }}"
-          generate_release_notes: true
+          body_path: /tmp/release_body.md
           make_latest: true
           files: ${{ env.zip_name }}
-          body: |
-            ## Installation
-
-            ### HACS (recommended)
-            Add `simplemice/ha_tmd_alerts` as a custom repository in HACS (category: Integration), then install **Thailand Weather Alerts (TMD)**.
-
-            ### Manual
-            Download `${{ env.zip_name }}`, extract it, and copy the `tmd_alerts/` folder into `config/custom_components/`.
-            Restart Home Assistant.
-
-            ---

@@ -9,3 +9,8 @@ DEFAULT_UKEY = "demokey"
 
 CONF_UID = "uid"
 CONF_UKEY = "ukey"
+CONF_LANGUAGE = "language"
+
+LANG_EN = "en"
+LANG_TH = "th"
+DEFAULT_LANGUAGE = LANG_EN

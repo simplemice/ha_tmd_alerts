@@ -6,7 +6,11 @@
         "description": "Connect to the Thai Meteorological Department Weather Warning API. Leave credentials as default to use the public demo account.",
         "data": {
           "uid": "API User ID",
-          "ukey": "API Key"
+          "ukey": "API Key",
+          "language": "Sensor language"
+        },
+        "data_description": {
+          "language": "Language used for warning text in sensors and attributes"
         }
       }
     },
@@ -16,6 +20,19 @@
     },
     "abort": {
       "already_configured": "Thailand Weather Alerts is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Thailand Weather Alerts — Options",
+        "data": {
+          "language": "Sensor language"
+        },
+        "data_description": {
+          "language": "Language used for warning text in sensors and attributes"
+        }
+      }
     }
   }
 }

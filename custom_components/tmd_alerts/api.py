@@ -4,6 +4,20 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 
+def _last_text(element: ET.Element, tag: str, default: str = "") -> str:
+    """Return text of the LAST child with the given tag.
+
+    The TMD API duplicates several fields within each <Warning> block.
+    The first occurrence of *English fields contains Thai text (API bug);
+    the second occurrence contains the actual English translation.
+    Using findtext() returns the first match, which gives Thai text.
+    """
+    matches = element.findall(tag)
+    if matches:
+        return (matches[-1].text or "").strip() or default
+    return default
+
+
 async def fetch_warnings(hass: HomeAssistant, url: str, uid: str, ukey: str) -> list[dict]:
     session = async_get_clientsession(hass)
     timeout = aiohttp.ClientTimeout(total=30)
@@ -21,14 +35,15 @@ async def fetch_warnings(hass: HomeAssistant, url: str, uid: str, ukey: str) -> 
             "effect_start": warning.findtext("EffectStartDate", ""),
             "effect_end": warning.findtext("EffectEndDate", ""),
             "announce_date": warning.findtext("AnnounceDate", ""),
-            "title_en": warning.findtext("TitleEnglish", ""),
-            "headline_en": warning.findtext("HeadlineEnglish", ""),
-            "description_en": warning.findtext("DescriptionEnglish", ""),
+            "title_en": _last_text(warning, "TitleEnglish"),
+            "headline_en": _last_text(warning, "HeadlineEnglish"),
+            "description_en": _last_text(warning, "DescriptionEnglish"),
+            "url_en": _last_text(warning, "WebUrlEnglish"),
             "title_th": warning.findtext("TitleThai", ""),
             "headline_th": warning.findtext("HeadlineThai", ""),
-            "url_en": warning.findtext("WebUrlEnglish", ""),
+            "description_th": warning.findtext("DescriptionThai", ""),
             "url_th": warning.findtext("WebUrlThai", ""),
-            "contact": warning.findtext("ContactEnglish", ""),
+            "contact": _last_text(warning, "ContactEnglish"),
         })
 
     return warnings

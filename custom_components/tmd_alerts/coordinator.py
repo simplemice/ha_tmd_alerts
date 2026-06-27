@@ -6,7 +6,17 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import fetch_warnings
-from .const import API_URL, CONF_UID, CONF_UKEY, DEFAULT_SCAN_INTERVAL, DEFAULT_UID, DEFAULT_UKEY, DOMAIN
+from .const import (
+    API_URL,
+    CONF_LANGUAGE,
+    CONF_UID,
+    CONF_UKEY,
+    DEFAULT_LANGUAGE,
+    DEFAULT_SCAN_INTERVAL,
+    DEFAULT_UID,
+    DEFAULT_UKEY,
+    DOMAIN,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -21,6 +31,11 @@ class TMDCoordinator(DataUpdateCoordinator):
         )
         self.uid = entry.data.get(CONF_UID, DEFAULT_UID)
         self.ukey = entry.data.get(CONF_UKEY, DEFAULT_UKEY)
+        # Options flow takes precedence over initial data
+        self.language: str = entry.options.get(
+            CONF_LANGUAGE,
+            entry.data.get(CONF_LANGUAGE, DEFAULT_LANGUAGE),
+        )
 
     async def _async_update_data(self) -> list[dict]:
         try:

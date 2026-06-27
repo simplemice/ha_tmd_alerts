@@ -3,8 +3,32 @@ import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.selector import (
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
+    TextSelector,
+    TextSelectorConfig,
+    TextSelectorType,
+)
 
-from .const import API_URL, CONF_UID, CONF_UKEY, DEFAULT_UID, DEFAULT_UKEY, DOMAIN
+from .const import (
+    API_URL,
+    CONF_LANGUAGE,
+    CONF_UID,
+    CONF_UKEY,
+    DEFAULT_LANGUAGE,
+    DEFAULT_UID,
+    DEFAULT_UKEY,
+    DOMAIN,
+    LANG_EN,
+    LANG_TH,
+)
+
+_LANGUAGE_OPTIONS = [
+    {"value": LANG_EN, "label": "English"},
+    {"value": LANG_TH, "label": "ภาษาไทย (Thai)"},
+]
 
 
 class TMDConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -16,6 +40,7 @@ class TMDConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             uid = user_input.get(CONF_UID) or DEFAULT_UID
             ukey = user_input.get(CONF_UKEY) or DEFAULT_UKEY
+            language = user_input.get(CONF_LANGUAGE, DEFAULT_LANGUAGE)
 
             try:
                 session = async_get_clientsession(self.hass)
@@ -30,7 +55,11 @@ class TMDConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     else:
                         return self.async_create_entry(
                             title="Thailand Weather Alerts (TMD)",
-                            data={CONF_UID: uid, CONF_UKEY: ukey},
+                            data={
+                                CONF_UID: uid,
+                                CONF_UKEY: ukey,
+                                CONF_LANGUAGE: language,
+                            },
                         )
             except aiohttp.ClientError:
                 errors["base"] = "cannot_connect"
@@ -38,8 +67,18 @@ class TMDConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "unknown"
 
         schema = vol.Schema({
-            vol.Optional(CONF_UID, default=DEFAULT_UID): str,
-            vol.Optional(CONF_UKEY, default=DEFAULT_UKEY): str,
+            vol.Optional(CONF_UID, default=DEFAULT_UID): TextSelector(
+                TextSelectorConfig(type=TextSelectorType.TEXT)
+            ),
+            vol.Optional(CONF_UKEY, default=DEFAULT_UKEY): TextSelector(
+                TextSelectorConfig(type=TextSelectorType.PASSWORD)
+            ),
+            vol.Required(CONF_LANGUAGE, default=DEFAULT_LANGUAGE): SelectSelector(
+                SelectSelectorConfig(
+                    options=_LANGUAGE_OPTIONS,
+                    mode=SelectSelectorMode.LIST,
+                )
+            ),
         })
 
         return self.async_show_form(
@@ -47,3 +86,34 @@ class TMDConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=schema,
             errors=errors,
         )
+
+    @staticmethod
+    def async_get_options_flow(config_entry):
+        return TMDOptionsFlow(config_entry)
+
+
+class TMDOptionsFlow(config_entries.OptionsFlow):
+    """Allow changing language after setup via the Configure button."""
+
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+        self._entry = config_entry
+
+    async def async_step_init(self, user_input=None):
+        if user_input is not None:
+            return self.async_create_entry(data=user_input)
+
+        current_lang = self._entry.options.get(
+            CONF_LANGUAGE,
+            self._entry.data.get(CONF_LANGUAGE, DEFAULT_LANGUAGE),
+        )
+
+        schema = vol.Schema({
+            vol.Required(CONF_LANGUAGE, default=current_lang): SelectSelector(
+                SelectSelectorConfig(
+                    options=_LANGUAGE_OPTIONS,
+                    mode=SelectSelectorMode.LIST,
+                )
+            ),
+        })
+
+        return self.async_show_form(step_id="init", data_schema=schema)

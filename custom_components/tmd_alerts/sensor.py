@@ -5,8 +5,13 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import DOMAIN, LANG_TH
 from .coordinator import TMDCoordinator
+
+_NO_WARNINGS = {
+    "en": "No active warnings",
+    "th": "ไม่มีการแจ้งเตือน",
+}
 
 
 async def async_setup_entry(
@@ -48,7 +53,18 @@ class TMDWarningCountSensor(CoordinatorEntity, SensorEntity):
     def extra_state_attributes(self) -> dict:
         if not self.coordinator.data:
             return {}
-        return {"warnings": self.coordinator.data}
+        lang = self.coordinator.language
+        return {
+            "warnings": [
+                {
+                    "title": w.get(f"title_{lang}", w.get("title_en", "")),
+                    "headline": w.get(f"headline_{lang}", w.get("headline_en", "")),
+                    "effect_start": w.get("effect_start", ""),
+                    "effect_end": w.get("effect_end", ""),
+                }
+                for w in self.coordinator.data
+            ]
+        }
 
 
 class TMDLatestWarningSensor(CoordinatorEntity, SensorEntity):
@@ -61,22 +77,30 @@ class TMDLatestWarningSensor(CoordinatorEntity, SensorEntity):
         self._attr_device_info = _device_info(entry.entry_id)
 
     @property
+    def _lang(self) -> str:
+        return self.coordinator.language
+
+    @property
     def native_value(self) -> str:
         if not self.coordinator.data:
-            return "No active warnings"
-        return self.coordinator.data[0].get("title_en", "Unknown")
+            return _NO_WARNINGS.get(self._lang, _NO_WARNINGS["en"])
+        w = self.coordinator.data[0]
+        return w.get(f"title_{self._lang}") or w.get("title_en", "Unknown")
 
     @property
     def extra_state_attributes(self) -> dict:
         if not self.coordinator.data:
             return {}
         w = self.coordinator.data[0]
+        lang = self._lang
         return {
-            "headline": w.get("headline_en", ""),
-            "description": w.get("description_en", ""),
+            "headline": w.get(f"headline_{lang}") or w.get("headline_en", ""),
+            "description": w.get(f"description_{lang}") or w.get("description_en", ""),
             "effect_start": w.get("effect_start", ""),
             "effect_end": w.get("effect_end", ""),
             "announce_date": w.get("announce_date", ""),
-            "url": w.get("url_en", ""),
+            "url": w.get(f"url_{lang}") or w.get("url_en", ""),
             "contact": w.get("contact", ""),
+            "issue_no": w.get("issue_no", ""),
+            "language": lang,
         }
