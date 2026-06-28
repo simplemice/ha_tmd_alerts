@@ -21,44 +21,50 @@ jobs:
         with:
           fetch-depth: 0
 
-      # ── Skip bot changelog commits (contain [skip ci]) ────────────────────
-      - name: Check for bot commit
+      # ── Skip bot release commits (contain [skip ci]) ──────────────────────
+      - name: Skip bot commits
         id: bot_check
         run: |
           MSG=$(git log -1 --pretty=%B)
           if echo "$MSG" | grep -qF '[skip ci]'; then
-            echo "is_bot=true" >> "$GITHUB_OUTPUT"
-            echo "Bot changelog commit — skipping release"
-          else
-            echo "is_bot=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      # ── Read version from manifest.json ───────────────────────────────────
-      - name: Read version from manifest.json
-        if: steps.bot_check.outputs.is_bot == 'false'
-        id: version
-        run: |
-          VERSION=$(python3 -c "import json; print(json.load(open('${{ env.INTEGRATION_DIR }}/manifest.json'))['version'])")
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "Manifest version: ${VERSION}"
-
-      # ── Skip if this version tag already has a release ────────────────────
-      - name: Check if release already exists
-        if: steps.bot_check.outputs.is_bot == 'false'
-        id: check
-        run: |
-          TAG="v${{ steps.version.outputs.version }}"
-          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" > /dev/null 2>&1; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "Tag ${TAG} already exists — skipping release"
+            echo "Bot commit — skipping"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
-            echo "Tag ${TAG} not found — will create release"
           fi
 
+      # ── Determine release version (auto-increment patch if tag exists) ────
+      - name: Determine version
+        if: steps.bot_check.outputs.skip == 'false'
+        id: version
+        run: |
+          BASE=$(python3 -c "import json; print(json.load(open('${{ env.INTEGRATION_DIR }}/manifest.json'))['version'])")
+
+          if git ls-remote --exit-code --tags origin "refs/tags/v${BASE}" > /dev/null 2>&1; then
+            MAJOR=$(echo "$BASE" | cut -d. -f1)
+            MINOR=$(echo "$BASE" | cut -d. -f2)
+            PATCH=$(echo "$BASE" | cut -d. -f3)
+            VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))"
+            echo "Tag v${BASE} exists — auto-incremented to ${VERSION}"
+          else
+            VERSION="${BASE}"
+            echo "Using version ${VERSION} from manifest"
+          fi
+
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+          # Write new version into manifest so the zip ships the correct version
+          python3 -c "
+          import json, pathlib
+          p = pathlib.Path('${{ env.INTEGRATION_DIR }}/manifest.json')
+          m = json.loads(p.read_text())
+          m['version'] = '${VERSION}'
+          p.write_text(json.dumps(m, indent=2) + '\n')
+          "
+
       # ── Generate CHANGELOG entry and update CHANGELOG.md ─────────────────
-      - name: Generate changelog entry
-        if: steps.bot_check.outputs.is_bot == 'false' && steps.check.outputs.skip == 'false'
+      - name: Generate changelog
+        if: steps.bot_check.outputs.skip == 'false'
         env:
           CL_VERSION: ${{ steps.version.outputs.version }}
         run: |
@@ -78,22 +84,14 @@ jobs:
           )
 
           sections = {
-              "Added":         [],
-              "Fixed":         [],
-              "Changed":       [],
-              "Documentation": [],
-              "Maintenance":   [],
-              "Other":         [],
+              "Added": [], "Fixed": [], "Changed": [],
+              "Documentation": [], "Maintenance": [], "Other": [],
           }
           prefix_map = {
-              "feat":     "Added",
-              "fix":      "Fixed",
-              "refactor": "Changed",
-              "perf":     "Changed",
-              "docs":     "Documentation",
-              "chore":    "Maintenance",
-              "style":    "Other",
-              "test":     "Other",
+              "feat": "Added", "fix": "Fixed",
+              "refactor": "Changed", "perf": "Changed",
+              "docs": "Documentation", "chore": "Maintenance",
+              "style": "Other", "test": "Other",
           }
 
           for msg in result.stdout.strip().splitlines():
@@ -115,10 +113,8 @@ jobs:
                   entry_lines.append("")
           entry = "\n".join(entry_lines).rstrip() + "\n"
 
-          # Save entry for release body
           pathlib.Path("/tmp/changelog_entry.md").write_text(entry)
 
-          # Build full release body
           install = (
               "\n---\n\n"
               "## Installation\n\n"
@@ -132,14 +128,12 @@ jobs:
           )
           pathlib.Path("/tmp/release_body.md").write_text(entry + install)
 
-          # Prepend entry to CHANGELOG.md
           cl = pathlib.Path("CHANGELOG.md")
           existing = cl.read_text() if cl.exists() else ""
           marker = "## ["
           if marker in existing:
               new_content = existing.replace(marker, entry + "\n---\n\n" + marker, 1)
           elif "---" in existing:
-              # Insert after the last --- separator in the header
               idx = existing.rfind("---")
               new_content = existing[:idx + 3] + "\n\n" + entry + existing[idx + 3:]
           else:
@@ -151,100 +145,85 @@ jobs:
               )
               new_content = header + entry
           cl.write_text(new_content)
-
-          print("--- Release body ---")
           print(entry)
           PYEOF
 
-      # ── Commit CHANGELOG.md back (with [skip ci] to avoid release loop) ───
-      - name: Commit CHANGELOG.md
-        if: steps.bot_check.outputs.is_bot == 'false' && steps.check.outputs.skip == 'false'
+      # ── Commit manifest.json + CHANGELOG.md and capture the new SHA ───────
+      # The release tag will point to this commit so manifest version matches.
+      - name: Commit and push version + changelog
+        if: steps.bot_check.outputs.skip == 'false'
+        id: bot_commit
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add CHANGELOG.md
+          git add ${{ env.INTEGRATION_DIR }}/manifest.json CHANGELOG.md
           if git diff --cached --quiet; then
-            echo "No changelog changes to commit"
+            # Nothing changed (rare edge case) — tag the current HEAD
+            echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           else
-            git commit -m "chore: update CHANGELOG for v${{ steps.version.outputs.version }} [skip ci]"
+            git commit -m "chore: release v${{ steps.version.outputs.version }} [skip ci]"
             git push
+            echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           fi
 
       # ── Validate ──────────────────────────────────────────────────────────
       - name: Validate JSON files
-        if: steps.bot_check.outputs.is_bot == 'false' && steps.check.outputs.skip == 'false'
+        if: steps.bot_check.outputs.skip == 'false'
         run: |
           python3 - <<'EOF'
           import json, sys, pathlib
           failed = False
           for f in pathlib.Path('custom_components/tmd_alerts').rglob('*.json'):
-              try:
-                  json.loads(f.read_text())
+              try: json.loads(f.read_text())
               except json.JSONDecodeError as e:
-                  print(f'FAIL {f}: {e}')
-                  failed = True
+                  print(f'FAIL {f}: {e}'); failed = True
           sys.exit(1 if failed else 0)
           EOF
 
       - name: Check Python syntax
-        if: steps.bot_check.outputs.is_bot == 'false' && steps.check.outputs.skip == 'false'
+        if: steps.bot_check.outputs.skip == 'false'
         run: |
           python3 - <<'EOF'
           import ast, sys, pathlib
           failed = False
           for f in pathlib.Path('custom_components/tmd_alerts').rglob('*.py'):
-              try:
-                  ast.parse(f.read_text())
+              try: ast.parse(f.read_text())
               except SyntaxError as e:
-                  print(f'FAIL {f}: {e}')
-                  failed = True
+                  print(f'FAIL {f}: {e}'); failed = True
           sys.exit(1 if failed else 0)
           EOF
 
       - name: Check required files
-        if: steps.bot_check.outputs.is_bot == 'false' && steps.check.outputs.skip == 'false'
+        if: steps.bot_check.outputs.skip == 'false'
         run: |
           BASE="custom_components/tmd_alerts"
-          REQUIRED=(
-            "${BASE}/__init__.py"
-            "${BASE}/manifest.json"
-            "${BASE}/config_flow.py"
-            "${BASE}/const.py"
-            "${BASE}/coordinator.py"
-            "${BASE}/sensor.py"
-            "${BASE}/binary_sensor.py"
-            "${BASE}/strings.json"
-            "${BASE}/translations/en.json"
-            "hacs.json"
-          )
-          for f in "${REQUIRED[@]}"; do
-            if [ ! -f "$f" ]; then
-              echo "::error::Missing required file: $f"
-              exit 1
-            fi
+          for f in "${BASE}/__init__.py" "${BASE}/manifest.json" "${BASE}/config_flow.py" \
+                   "${BASE}/const.py" "${BASE}/coordinator.py" "${BASE}/sensor.py" \
+                   "${BASE}/binary_sensor.py" "${BASE}/strings.json" \
+                   "${BASE}/translations/en.json" "hacs.json"; do
+            [ -f "$f" ] || { echo "::error::Missing: $f"; exit 1; }
           done
           echo "All required files present"
 
-      # ── Build release zip ─────────────────────────────────────────────────
+      # ── Build zip from the current workspace (has updated manifest) ───────
       - name: Build release zip
-        if: steps.bot_check.outputs.is_bot == 'false' && steps.check.outputs.skip == 'false'
+        if: steps.bot_check.outputs.skip == 'false'
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           ZIPNAME="tmd_alerts_v${VERSION}.zip"
-          cd custom_components
-          zip -r "${GITHUB_WORKSPACE}/${ZIPNAME}" tmd_alerts/
-          cd "${GITHUB_WORKSPACE}"
-          ls -lh "${ZIPNAME}"
+          cd custom_components && zip -r "${GITHUB_WORKSPACE}/${ZIPNAME}" tmd_alerts/
+          ls -lh "${GITHUB_WORKSPACE}/${ZIPNAME}"
           echo "zip_name=${ZIPNAME}" >> "$GITHUB_ENV"
 
-      # ── Create GitHub Release ─────────────────────────────────────────────
+      # ── Create GitHub Release — tag points to the bot commit ──────────────
       - name: Create GitHub Release
-        if: steps.bot_check.outputs.is_bot == 'false' && steps.check.outputs.skip == 'false'
+        if: steps.bot_check.outputs.skip == 'false'
         uses: softprops/action-gh-release@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           tag_name: "v${{ steps.version.outputs.version }}"
           name: "v${{ steps.version.outputs.version }}"
+          target_commitish: ${{ steps.bot_commit.outputs.sha }}
           body_path: /tmp/release_body.md
           make_latest: true
           files: ${{ env.zip_name }}
