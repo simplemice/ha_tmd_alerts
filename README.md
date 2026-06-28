@@ -125,7 +125,7 @@ All entities belong to the **Thailand Weather Alerts (TMD)** device.
 
 ## Screenshots
 
-![TMD Alert Screenshot](screenshots/tmd_0.png)
+![TMD Alert Screenshot](screenshots/tmd_0.png) ![TMD Alert Screenshot](screenshots/tmd_1.png)
 
 ## Data Source
 
