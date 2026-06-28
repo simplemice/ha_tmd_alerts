@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.5] - 2026-06-28
+
+### Fixed
+- use first API field for English text and add auto language detection
+
+---
+
 ## [2.2.4] - 2026-06-28
 
 ### Fixed
