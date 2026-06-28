@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.4] - 2026-06-28
+
+### Fixed
+- move brand assets to correct location and add icon.png
+
+---
+
 ## [2.2.3] - 2026-06-28
 
 ### Fixed
