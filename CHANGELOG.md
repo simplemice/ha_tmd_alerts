@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.2.2] - 2026-06-28
+
+### Other
+- fix workflow
+- add brand logo & screenshot
+- add more screenshot and fix README.md
+- fix CHANGELOG.md
+
+---
+
 ## [2.2.1] - 2026-06-28
 
 ### Fixed
