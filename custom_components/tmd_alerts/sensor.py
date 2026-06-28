@@ -9,7 +9,7 @@ from .const import DOMAIN, LANG_TH
 from .coordinator import TMDCoordinator
 
 _NO_WARNINGS = {
-    "en": "No active warnings",
+    "en": "None",
     "th": "ไม่มีการแจ้งเตือน",
 }
 
@@ -85,7 +85,11 @@ class TMDLatestWarningSensor(CoordinatorEntity, SensorEntity):
         if not self.coordinator.data:
             return _NO_WARNINGS.get(self._lang, _NO_WARNINGS["en"])
         w = self.coordinator.data[0]
-        return w.get(f"title_{self._lang}") or w.get("title_en", "Unknown")
+        return (
+            w.get(f"title_{self._lang}")
+            or w.get("title_en")
+            or _NO_WARNINGS.get(self._lang, _NO_WARNINGS["en"])
+        )
 
     @property
     def extra_state_attributes(self) -> dict:
