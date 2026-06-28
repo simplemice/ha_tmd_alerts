@@ -16,6 +16,9 @@ from .const import (
     DEFAULT_UID,
     DEFAULT_UKEY,
     DOMAIN,
+    LANG_AUTO,
+    LANG_EN,
+    LANG_TH,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -29,13 +32,21 @@ class TMDCoordinator(DataUpdateCoordinator):
             name=DOMAIN,
             update_interval=timedelta(seconds=DEFAULT_SCAN_INTERVAL),
         )
+        self._entry = entry
         self.uid = entry.data.get(CONF_UID, DEFAULT_UID)
         self.ukey = entry.data.get(CONF_UKEY, DEFAULT_UKEY)
-        # Options flow takes precedence over initial data
-        self.language: str = entry.options.get(
+
+    @property
+    def language(self) -> str:
+        """Return active language: auto-detects from HA config unless overridden."""
+        configured = self._entry.options.get(
             CONF_LANGUAGE,
-            entry.data.get(CONF_LANGUAGE, DEFAULT_LANGUAGE),
+            self._entry.data.get(CONF_LANGUAGE, DEFAULT_LANGUAGE),
         )
+        if configured == LANG_AUTO:
+            ha_lang = (self.hass.config.language or "").lower()
+            return LANG_TH if ha_lang.startswith("th") else LANG_EN
+        return configured
 
     async def _async_update_data(self) -> list[dict]:
         try:

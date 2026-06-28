@@ -21,11 +21,13 @@ from .const import (
     DEFAULT_UID,
     DEFAULT_UKEY,
     DOMAIN,
+    LANG_AUTO,
     LANG_EN,
     LANG_TH,
 )
 
 _LANGUAGE_OPTIONS = [
+    {"value": LANG_AUTO, "label": "Auto (follow HA language)"},
     {"value": LANG_EN, "label": "English"},
     {"value": LANG_TH, "label": "ภาษาไทย (Thai)"},
 ]
