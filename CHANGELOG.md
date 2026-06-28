@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.2.1] - 2026-06-28
+
+### Fixed
+- reload coordinator on language change, fix OptionsFlow for HA 2024.11+ (v2.2.1)
+
+### Other
+- fix CHANGELOG.md
+
+---
+
 ## [2.2.0] - 2026-06-27
 
 ### Added
