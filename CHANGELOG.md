@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.3] - 2026-06-28
+
+### Fixed
+- show None instead of empty state when no active warnings
+
+---
+
 ## [2.2.2] - 2026-06-28
 
 ### Other
