@@ -5,6 +5,14 @@
 ### Fixed
 - reload coordinator on language change, fix OptionsFlow for HA 2024.11+ (v2.2.1)
 
+- Add update_listener in async_setup_entry so language change via Configure
+  reloads the integration immediately without manual HA restart
+
+- Remove config_entry argument from TMDOptionsFlow.__init__ (deprecated in
+  HA 2024.11+, caused Configure button to silently fail)
+
+- Bump to v2.2.1
+
 ### Other
 - fix CHANGELOG.md
 
