@@ -89,22 +89,19 @@ class TMDConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     def async_get_options_flow(config_entry):
-        return TMDOptionsFlow(config_entry)
+        return TMDOptionsFlow()
 
 
 class TMDOptionsFlow(config_entries.OptionsFlow):
     """Allow changing language after setup via the Configure button."""
 
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        self._entry = config_entry
-
     async def async_step_init(self, user_input=None):
         if user_input is not None:
             return self.async_create_entry(data=user_input)
 
-        current_lang = self._entry.options.get(
+        current_lang = self.config_entry.options.get(
             CONF_LANGUAGE,
-            self._entry.data.get(CONF_LANGUAGE, DEFAULT_LANGUAGE),
+            self.config_entry.data.get(CONF_LANGUAGE, DEFAULT_LANGUAGE),
         )
 
         schema = vol.Schema({
