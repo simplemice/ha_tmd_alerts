@@ -4,15 +4,18 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 
-def _first_text(element: ET.Element, tag: str, default: str = "") -> str:
-    """Return text of the FIRST child with the given tag.
+def _last_text(element: ET.Element, tag: str, default: str = "") -> str:
+    """Return text of the LAST child with the given tag.
 
-    The TMD API duplicates bilingual fields within each <Warning> block.
-    The first occurrence contains the correct language text; the second is
-    a duplicate with the opposite language (API quirk). findtext() already
-    returns the first match so this just normalises whitespace and default.
+    The TMD API duplicates English fields within each <Warning> block: the
+    FIRST occurrence of TitleEnglish/HeadlineEnglish/etc. contains Thai text
+    (a copy of the Thai fields); the LAST occurrence holds the actual English
+    translation. findall()[-1] ensures we always get the real English value.
     """
-    return (element.findtext(tag) or "").strip() or default
+    found = element.findall(tag)
+    if not found:
+        return default
+    return (found[-1].text or "").strip() or default
 
 
 async def fetch_warnings(hass: HomeAssistant, url: str, uid: str, ukey: str) -> list[dict]:
@@ -32,15 +35,15 @@ async def fetch_warnings(hass: HomeAssistant, url: str, uid: str, ukey: str) -> 
             "effect_start": warning.findtext("EffectStartDate", ""),
             "effect_end": warning.findtext("EffectEndDate", ""),
             "announce_date": warning.findtext("AnnounceDate", ""),
-            "title_en": _first_text(warning, "TitleEnglish"),
-            "headline_en": _first_text(warning, "HeadlineEnglish"),
-            "description_en": _first_text(warning, "DescriptionEnglish"),
-            "url_en": _first_text(warning, "WebUrlEnglish"),
+            "title_en": _last_text(warning, "TitleEnglish"),
+            "headline_en": _last_text(warning, "HeadlineEnglish"),
+            "description_en": _last_text(warning, "DescriptionEnglish"),
+            "url_en": _last_text(warning, "WebUrlEnglish"),
             "title_th": warning.findtext("TitleThai", ""),
             "headline_th": warning.findtext("HeadlineThai", ""),
             "description_th": warning.findtext("DescriptionThai", ""),
             "url_th": warning.findtext("WebUrlThai", ""),
-            "contact": _first_text(warning, "ContactEnglish"),
+            "contact": _last_text(warning, "ContactEnglish"),
         })
 
     return warnings
