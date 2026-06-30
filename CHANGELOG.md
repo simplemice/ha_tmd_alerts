@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.6] - 2026-06-30
+
+### Fixed
+- use last occurrence of English fields to get real English text
+
+---
+
 ## [2.2.5] - 2026-06-28
 
 ### Fixed
