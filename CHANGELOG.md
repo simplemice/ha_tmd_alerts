@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.7] - 2026-07-01
+
+### Other
+- add readme logo
+
+---
+
 ## [2.2.6] - 2026-06-30
 
 ### Fixed
