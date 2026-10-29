@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.1] - 2026-10-29
+
+### Other
+- Update README
+
+---
+
 ## [2.3.0] - 2026-10-29
 
 ### Other
