@@ -14,16 +14,15 @@ A custom Home Assistant integration that fetches real-time weather warnings from
 
 ## Features
 
-- **Active warning count sensor** — number of currently issued warnings
-- **Latest warning sensor** — title and full text of the most recent warning
-- **Warning active binary sensor** — `ON` whenever any warning is in effect
-- **Storm warning binary sensor** — `ON` for tropical storms, typhoons, cyclones
-- **Heavy rain warning binary sensor** — `ON` for heavy rain, flash flood, or accumulation advisories
-- **Wave warning binary sensor** — `ON` for strong wind-wave advisories on the Andaman Sea or Gulf of Thailand
-- **Thunderstorm** and **Monsoon/Cold** warning binary sensors
-- **New warning binary sensor** — pulses `ON` for 10 minutes when a previously unseen warning appears
-- **Warning expires** timestamp, **severity** level, and **last updated** diagnostic sensors
-- Expired warnings are ignored automatically; keyword matching works on English and Thai text
+- **Active warning count** and **latest warning** sensors (title, full text, dates, PDF link, hours remaining)
+- **Warning expires** timestamp sensor — trigger an "all clear" automation when the last warning ends
+- **Warning severity** sensor — `none` / `advisory` / `warning` / `severe`
+- **Hazard binary sensors** — any warning, storm, heavy rain, wave, thunderstorm, monsoon/cold
+- **New warning binary sensor** — pulses `ON` for 10 minutes when a previously unseen warning appears, so you are not re-notified on updates
+- **Last updated** diagnostic sensor — time of the last successful fetch
+- Expired warnings are ignored automatically
+- Keyword matching in **English and Thai**, with word boundaries (a thunderstorm does not trigger the storm sensor; a heat wave does not trigger the wave sensor)
+- **Language** option: auto-detect from Home Assistant, English, or Thai
 - All entities grouped into a single **TMD device** in the device registry
 - Automatic refresh every **10 minutes**
 - Uses the official TMD REST API — no web scraping
@@ -57,6 +56,8 @@ A custom Home Assistant integration that fetches real-time weather warnings from
            ├── __init__.py
            ├── api.py
            ├── binary_sensor.py
+           ├── brand/
+           ├── classify.py
            ├── config_flow.py
            ├── const.py
            ├── coordinator.py
@@ -77,9 +78,10 @@ A custom Home Assistant integration that fetches real-time weather warnings from
 3. In the setup form:
    - **API User ID** — leave as `demo` to use the public account
    - **API Key** — leave as `demokey` to use the public account
-4. Click **Submit**
+4. Choose a **Language** (`auto` follows your Home Assistant language, or force English / Thai)
+5. Click **Submit**
 
-The integration validates the credentials against the live API before saving.
+The integration validates the credentials against the live API before saving. The language can be changed later via **Configure** on the integration card.
 
 ### Using your own API key
 
@@ -101,8 +103,8 @@ All entities belong to the **Thailand Weather Alerts (TMD)** device.
 
 | Entity ID | Name | State | Notes |
 |-----------|------|-------|-------|
-| `sensor.tmd_active_warnings` | TMD Active Warnings | Number of active warnings | Unit: `warnings` |
-| `sensor.tmd_latest_warning` | TMD Latest Warning | Title of most recent warning (English) | See attributes below |
+| `sensor.tmd_active_warnings` | TMD Active Warnings | Number of active (unexpired) warnings | Unit: `warnings` |
+| `sensor.tmd_latest_warning` | TMD Latest Warning | Title of the most recently announced active warning (in the selected language) | See attributes below |
 | `sensor.tmd_warning_expires` | TMD Warning Expires | Soonest `effect_end` among active warnings | `timestamp`; use as an "all clear" trigger |
 | `sensor.tmd_warning_severity` | TMD Warning Severity | `none` / `advisory` / `warning` / `severe` | Keyword-derived: `severe` for very heavy rain, typhoon, cyclone, flash flood; `warning` for a recognised hazard; `advisory` otherwise |
 | `sensor.tmd_warnings_updated` | TMD Warnings Updated | Time of last successful fetch | Diagnostic, `timestamp` |
@@ -118,13 +120,15 @@ All entities belong to the **Thailand Weather Alerts (TMD)** device.
 | `announce_date` | Date/time the warning was issued |
 | `url` | Link to the official PDF advisory |
 | `contact` | TMD contact information |
+| `issue_no` | TMD issue number |
 | `hours_remaining` | Hours until the warning expires (empty if the end date is unknown) |
+| `language` | Language used for the text attributes |
 
 #### `sensor.tmd_active_warnings` attributes
 
 | Attribute | Description |
 |-----------|-------------|
-| `warnings` | List of all active warnings (each with title, headline, description, dates, URL) |
+| `warnings` | List of all active warnings (each with title, headline, effect start and end) |
 
 ### Binary Sensors
 
@@ -155,7 +159,8 @@ Matching also covers the equivalent Thai terms. Warnings past their `effect_end`
 | API | `https://data.tmd.go.th/api/WeatherWarningNews/v2/` |
 | Format | XML |
 | Update interval | Every 10 minutes |
-| Language | Thai and English (integration uses English fields) |
+| Language | Thai and English (selected via the Language option) |
+| Dates | Parsed as Thai time (UTC+7); warnings past `effect_end` are ignored. If a date cannot be parsed the warning stays active |
 | Authentication | `uid` + `ukey` query parameters |
 
 The TMD issues weather advisories when hazardous conditions are expected: heavy rainfall, tropical systems, strong wind-waves on coastal waters, and flash flood risk. Advisories typically cover multi-day periods and are updated once or twice daily.
@@ -199,6 +204,40 @@ automation:
             to {{ state_attr('sensor.tmd_latest_warning', 'effect_end') }}
 ```
 
+### New warning with severity
+
+```yaml
+automation:
+  - alias: "TMD new warning"
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.tmd_new_warning
+        to: "on"
+    action:
+      - service: notify.mobile_app_your_phone
+        data:
+          title: "TMD {{ states('sensor.tmd_warning_severity') | title }}"
+          message: >
+            {{ states('sensor.tmd_latest_warning') }}
+            ({{ state_attr('sensor.tmd_latest_warning', 'hours_remaining') }} h remaining)
+```
+
+### All clear when warnings expire
+
+```yaml
+automation:
+  - alias: "TMD all clear"
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.tmd_warning_active
+        from: "on"
+        to: "off"
+    action:
+      - service: notify.mobile_app_your_phone
+        data:
+          message: "TMD warnings have ended."
+```
+
 ### Dashboard card
 
 ```yaml
@@ -209,6 +248,10 @@ entities:
   - entity: binary_sensor.tmd_heavy_rain_warning
   - entity: binary_sensor.tmd_storm_warning
   - entity: binary_sensor.tmd_wave_warning
+  - entity: binary_sensor.tmd_thunderstorm_warning
+  - entity: binary_sensor.tmd_monsoon_cold_warning
+  - entity: sensor.tmd_warning_severity
+  - entity: sensor.tmd_warning_expires
   - entity: sensor.tmd_active_warnings
   - entity: sensor.tmd_latest_warning
 ```
@@ -218,7 +261,7 @@ entities:
 ## Troubleshooting
 
 **Integration fails to set up**
-- Verify internet access: `curl "http://data.tmd.go.th/api/WeatherWarningNews/v2/?uid=demo&ukey=demokey"`
+- Verify internet access: `curl "https://data.tmd.go.th/api/WeatherWarningNews/v2/?uid=demo&ukey=demokey"`
 - Check Home Assistant logs for errors from `custom_components.tmd_alerts`
 
 **Entities show `unavailable`**
@@ -227,8 +270,15 @@ entities:
 **All binary sensors stay `OFF`**
 - This is correct behaviour when TMD has no active warnings. Thailand's weather warning system only issues advisories during actual hazardous conditions.
 
+**A warning is still showing after it ended / disappeared too early**
+- Expiry uses the warning's `effect_end` (Thai time) and is re-evaluated on each 10-minute refresh. If TMD sends a date in an unrecognised format, the warning stays active and `sensor.tmd_warning_expires` is empty — please open an issue with the raw `effect_end` value.
+
+**A hazard sensor did not turn on**
+- Hazard sensors match the warning title and headline only (not the full description). Check `sensor.tmd_latest_warning` attributes to see the wording TMD used.
+
 **Warning text is in Thai**
-- The integration reads English fields from the API. If `TitleEnglish` or `HeadlineEnglish` fields are empty in the API response, the entity state may appear blank. This occasionally happens during rapid re-issues of an advisory.
+- Text follows the **Language** option (default `auto`, based on your Home Assistant language). Change it via **Configure** on the integration card.
+- If the English fields are empty in the API response, the entity falls back to the other available text. This occasionally happens during rapid re-issues of an advisory.
 
 ---
 
@@ -237,17 +287,26 @@ entities:
 ```
 TMDCoordinator (DataUpdateCoordinator)
 │   Polls API every 10 minutes via aiohttp
-│   Parses XML with xml.etree.ElementTree
+│   Parses XML with xml.etree.ElementTree (api.py)
+│   active_warnings = unexpired warnings, newest first
+│
+├── classify.py   keyword patterns (EN + TH) and severity
 │
 ├── sensor.py
-│   ├── TMDWarningCountSensor   (native_value = len(warnings))
-│   └── TMDLatestWarningSensor  (native_value = title_en of warnings[0])
+│   ├── TMDWarningCountSensor     (count of active warnings)
+│   ├── TMDLatestWarningSensor    (title of newest active warning)
+│   ├── TMDWarningExpiresSensor   (soonest effect_end, timestamp)
+│   ├── TMDWarningSeveritySensor  (none / advisory / warning / severe)
+│   └── TMDWarningsUpdatedSensor  (last successful fetch, diagnostic)
 │
 └── binary_sensor.py
-    ├── TMDWarningActiveSensor  (is_on = bool(warnings))
-    ├── TMDStormWarningSensor   (is_on = keyword match)
-    ├── TMDHeavyRainSensor      (is_on = keyword match)
-    └── TMDWaveWarningSensor    (is_on = keyword match)
+    ├── TMDWarningActiveSensor        (any active warning)
+    ├── TMDStormWarningSensor         (keyword match)
+    ├── TMDHeavyRainSensor            (keyword match)
+    ├── TMDWaveWarningSensor          (keyword match)
+    ├── TMDThunderstormWarningSensor  (keyword match)
+    ├── TMDMonsoonWarningSensor       (keyword match)
+    └── TMDNewWarningSensor           (10-minute pulse on unseen warning)
 ```
 
 All entities inherit `CoordinatorEntity` and update automatically when the coordinator fetches new data.
