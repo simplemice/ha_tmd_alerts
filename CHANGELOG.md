@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.2] - 2026-10-29
+
+### Other
+- Update screenshot 1
+
+---
+
 ## [2.3.1] - 2026-10-29
 
 ### Other
