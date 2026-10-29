@@ -1,11 +1,7 @@
 {
   "domain": "tmd_alerts",
   "name": "Thailand Weather Alerts (TMD)",
-<<<<<<< Updated upstream
-  "version": "2.2.7",
-=======
   "version": "2.3.0",
->>>>>>> Stashed changes
   "documentation": "https://github.com/simplemice/tmd_alerts",
   "requirements": [],
   "codeowners": [
