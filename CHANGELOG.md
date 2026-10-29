@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.3.0] - 2026-10-29
+
+### Other
+- Update version
+- Update TMD alerts integration
+- add new sensors and fix some bugs
+
+---
+
 ## [2.2.7] - 2026-07-01
 
 ### Other
