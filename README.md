@@ -20,6 +20,10 @@ A custom Home Assistant integration that fetches real-time weather warnings from
 - **Storm warning binary sensor** — `ON` for tropical storms, typhoons, cyclones
 - **Heavy rain warning binary sensor** — `ON` for heavy rain, flash flood, or accumulation advisories
 - **Wave warning binary sensor** — `ON` for strong wind-wave advisories on the Andaman Sea or Gulf of Thailand
+- **Thunderstorm** and **Monsoon/Cold** warning binary sensors
+- **New warning binary sensor** — pulses `ON` for 10 minutes when a previously unseen warning appears
+- **Warning expires** timestamp, **severity** level, and **last updated** diagnostic sensors
+- Expired warnings are ignored automatically; keyword matching works on English and Thai text
 - All entities grouped into a single **TMD device** in the device registry
 - Automatic refresh every **10 minutes**
 - Uses the official TMD REST API — no web scraping
@@ -99,6 +103,9 @@ All entities belong to the **Thailand Weather Alerts (TMD)** device.
 |-----------|------|-------|-------|
 | `sensor.tmd_active_warnings` | TMD Active Warnings | Number of active warnings | Unit: `warnings` |
 | `sensor.tmd_latest_warning` | TMD Latest Warning | Title of most recent warning (English) | See attributes below |
+| `sensor.tmd_warning_expires` | TMD Warning Expires | Soonest `effect_end` among active warnings | `timestamp`; use as an "all clear" trigger |
+| `sensor.tmd_warning_severity` | TMD Warning Severity | `none` / `advisory` / `warning` / `severe` | Keyword-derived: `severe` for very heavy rain, typhoon, cyclone, flash flood; `warning` for a recognised hazard; `advisory` otherwise |
+| `sensor.tmd_warnings_updated` | TMD Warnings Updated | Time of last successful fetch | Diagnostic, `timestamp` |
 
 #### `sensor.tmd_latest_warning` attributes
 
@@ -111,6 +118,7 @@ All entities belong to the **Thailand Weather Alerts (TMD)** device.
 | `announce_date` | Date/time the warning was issued |
 | `url` | Link to the official PDF advisory |
 | `contact` | TMD contact information |
+| `hours_remaining` | Hours until the warning expires (empty if the end date is unknown) |
 
 #### `sensor.tmd_active_warnings` attributes
 
@@ -123,9 +131,14 @@ All entities belong to the **Thailand Weather Alerts (TMD)** device.
 | Entity ID | Name | Device Class | Turns ON when |
 |-----------|------|--------------|---------------|
 | `binary_sensor.tmd_warning_active` | TMD Warning Active | `safety` | Any warning is active |
-| `binary_sensor.tmd_storm_warning` | TMD Storm Warning | `safety` | Title/headline contains: *storm, tropical, typhoon, cyclone, depression* |
-| `binary_sensor.tmd_heavy_rain_warning` | TMD Heavy Rain Warning | `moisture` | Title/headline contains: *heavy rain, very heavy rain, flash flood, flood, heavy to very heavy* |
-| `binary_sensor.tmd_wave_warning` | TMD Wave Warning | `safety` | Title/headline contains: *wave, wind-wave, strong wind, andaman, gulf* |
+| `binary_sensor.tmd_storm_warning` | TMD Storm Warning | `safety` | Title/headline contains: *storm, tropical, typhoon, cyclone, depression* (thunderstorms excluded) |
+| `binary_sensor.tmd_heavy_rain_warning` | TMD Heavy Rain Warning | `moisture` | Title/headline contains: *heavy rain, heavy to very heavy, flood, flash flood* |
+| `binary_sensor.tmd_wave_warning` | TMD Wave Warning | `safety` | Title/headline contains: *wave, wind-wave, rough/high seas* (heat waves excluded) |
+| `binary_sensor.tmd_thunderstorm_warning` | TMD Thunderstorm Warning | `safety` | Title/headline contains: *thunderstorm, lightning, gust, hail* |
+| `binary_sensor.tmd_monsoon_cold_warning` | TMD Monsoon Cold Warning | `safety` | Title/headline contains: *monsoon, cold front, cold, strong wind* |
+| `binary_sensor.tmd_new_warning` | TMD New Warning | — | A warning not seen before appeared in the last 10 minutes (warnings present at startup do not count) |
+
+Matching also covers the equivalent Thai terms. Warnings past their `effect_end` are ignored by all entities.
 
 ---
 
@@ -139,7 +152,7 @@ All entities belong to the **Thailand Weather Alerts (TMD)** device.
 
 | Item | Value |
 |------|-------|
-| API | `http://data.tmd.go.th/api/WeatherWarningNews/v2/` |
+| API | `https://data.tmd.go.th/api/WeatherWarningNews/v2/` |
 | Format | XML |
 | Update interval | Every 10 minutes |
 | Language | Thai and English (integration uses English fields) |
